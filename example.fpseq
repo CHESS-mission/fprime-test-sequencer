@@ -1,14 +1,3 @@
-# F´ Test Sequencer
-
-Simple test sequencer for F´ based flight software with support for sending
-commands at specific times, and expecting events or telemetry with matching
-values during specific time intervals.
-
-## Example
-
-This is an example test sequence.
-
-```python
 # Create a test sequence called test1
 TEST SEQ test1
   # Expect no event of severity warning_hi or fatal along the course of the test
@@ -36,4 +25,3 @@ SEQ test2
     [800:1200] EXPECT EVENT eventAction.ModeChanged MEASURE
     [1200:60000] EXPECT NO EVENT eventAction.ModeChanged
     [60000:62000] EXPECT EVENT eventAction.ModeChanged CHARGE
-```

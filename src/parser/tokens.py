@@ -32,6 +32,7 @@ class IndentationToken:
 class NewLineToken:
     """Token representing a new line."""
 
+
 @dataclass
 class KeywordToken:
     """Token representing a keyword."""

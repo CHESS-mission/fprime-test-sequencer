@@ -18,22 +18,22 @@ TEST SEQ test1
   # Send a command without arguments at the start of the test
   [0] COMMAND eventAction.LOG_VERSION
     # Expect event and telemetry 10 ms after sending the command
-    [:10] EXPECT EVENT eventAction.CurrentVersion r"\d"
-    [:10] EXPECT TELEMETRY eventAction.Version r"\d"
+    [:10] EXPECT EVENT eventAction.CurrentVersion re"\d"
+    [:10] EXPECT TELEMETRY eventAction.Version re"\d"
 
   # Send a second command 50 ms after the start of the test
   [50] COMMAND eventAction.SCHEDULE_NUMBER_CRUNCHER 1 600 60
     # Expect mode changes only during specific time interval (relative to the command)
-    [800:1200] EXPECT EVENT eventAction.ModeChanged MEASURE
+    [800:1200] EXPECT EVENT eventAction.ModeChanged "MEASURE"
     [1200:60000] EXPECT NO EVENT eventAction.ModeChanged
-    [60000:62000] EXPECT EVENT eventAction.ModeChanged CHARGE
+    [60000:62000] EXPECT EVENT eventAction.ModeChanged "CHARGE"
 
   # Run another sequence inside a sequence
   [200] RUNSEQ test2
 
 SEQ test2
   [0] COMMAND eventAction.SCHEDULE_WRITE_PATTERN_RAM 1 60 1024 0
-    [800:1200] EXPECT EVENT eventAction.ModeChanged MEASURE
+    [800:1200] EXPECT EVENT eventAction.ModeChanged "MEASURE"
     [1200:60000] EXPECT NO EVENT eventAction.ModeChanged
-    [60000:62000] EXPECT EVENT eventAction.ModeChanged CHARGE
+    [60000:62000] EXPECT EVENT eventAction.ModeChanged "CHARGE"
 ```

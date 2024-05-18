@@ -20,8 +20,15 @@ TEST SEQ test1
   # Run another sequence inside a sequence
   [200] RUNSEQ simple_seq
 
+
 SEQ simple_seq
   [0] COMMAND eventAction.SCHEDULE_WRITE_PATTERN_RAM 1 60 1024 0
     [800:1200] EXPECT EVENT eventAction.ModeChanged "MEASURE"
     [1200:60000] EXPECT NO EVENT eventAction.ModeChanged
     [60000:62000] EXPECT EVENT eventAction.ModeChanged "CHARGE"
+
+
+SEQ simple_seq2
+  [42] COMMAND eventAction.LOG_VERSION
+    [:] EXPECT EVENT eventAction.CurrentVersion
+    [58] RUNSEQ simple_seq

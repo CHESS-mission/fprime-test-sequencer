@@ -1,6 +1,6 @@
 from tokens import *
 from lexer import Lexer
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Self
 import abc
 
@@ -42,6 +42,7 @@ class Instruction(abc.ABC):
         instruction_dict = {}
         token_idx = 0
         slot_idx = 0
+
         while True:
             token = tokens[token_idx] if token_idx < len(tokens) else None
             token_name, token_slot = slots[slot_idx] if slot_idx < len(slots) else (None, None)
@@ -125,12 +126,17 @@ class CommandInstruction(Instruction):
             args = [token.value for token in token_dict["args"]]
         )
 
+    def with_time_offset(self, time_offset: int) -> Self:
+        copy = replace(self)
+        copy.send_time_ms += time_offset
+        return copy
+
 
 @dataclass
 class ExpectEventInstruction(Instruction):
     event: str
-    start_time_ms: int | None = None
-    end_time_ms: int | None = None
+    start_time_ms: int = 0
+    end_time_ms: int = -1
     expected_value: str | None = None
     is_regex: bool = False
     is_expected: bool = True
@@ -154,19 +160,25 @@ class ExpectEventInstruction(Instruction):
     def from_token_dict(cls, token_dict: dict) -> Self:
         return cls(
             event = token_dict["event"].name,
-            start_time_ms = int(token_dict["start_time_ms"].value) if token_dict["start_time_ms"] != None else None,
-            end_time_ms = int(token_dict["end_time_ms"].value) if token_dict["end_time_ms"] != None else None,
+            start_time_ms = int(token_dict["start_time_ms"].value) if token_dict["start_time_ms"] != None else 0,
+            end_time_ms = int(token_dict["end_time_ms"].value) if token_dict["end_time_ms"] != None else -1,
             expected_value = token_dict["expected_value"].value if token_dict["expected_value"] != None else None,
             is_regex = token_dict["expected_value"].is_regex if token_dict["expected_value"] != None else False,
             is_expected = token_dict["is_not_expected"] == None
         )
 
+    def with_time_offset(self, time_offset: int) -> Self:
+        copy = replace(self)
+        copy.start_time_ms += time_offset
+        copy.end_time_ms += time_offset if self.end_time_ms != -1 else 0
+        return copy
+
 
 @dataclass
 class ExpectTelemetryInstruction(Instruction):
     channel: str
-    start_time_ms: int | None = None
-    end_time_ms: int | None = None
+    start_time_ms: int = 0
+    end_time_ms: int = -1
     expected_value: str | None = None
     is_regex: bool = False
     is_expected: bool = True
@@ -190,12 +202,18 @@ class ExpectTelemetryInstruction(Instruction):
     def from_token_dict(cls, token_dict: dict) -> Self:
         return cls(
             channel = token_dict["channel"].name,
-            start_time_ms = int(token_dict["start_time_ms"].value) if token_dict["start_time_ms"] != None else None,
-            end_time_ms = int(token_dict["end_time_ms"].value) if token_dict["end_time_ms"] != None else None,
+            start_time_ms = int(token_dict["start_time_ms"].value) if token_dict["start_time_ms"] != None else 0,
+            end_time_ms = int(token_dict["end_time_ms"].value) if token_dict["end_time_ms"] != None else -1,
             expected_value = token_dict["expected_value"].value if token_dict["expected_value"] != None else None,
             is_regex = token_dict["expected_value"].is_regex if token_dict["expected_value"] != None else False,
             is_expected = token_dict["is_not_expected"] == None,
         )
+
+    def with_time_offset(self, time_offset: int) -> Self:
+        copy = replace(self)
+        copy.start_time_ms += time_offset
+        copy.end_time_ms += time_offset if self.end_time_ms != -1 else 0
+        return copy
 
 
 @dataclass
@@ -221,6 +239,42 @@ class RunSeqInstruction(Instruction):
         )
 
 
+@dataclass
+class EmptyInstruction(Instruction):
+
+    @classmethod
+    def get_structure(cls) -> list[tuple[str | None, TokenSlot]]:
+        return []
+
+    @classmethod
+    def from_token_dict(cls, token_dict: dict) -> Self:
+        return cls()
+
+
+@dataclass
+class Sequence:
+    name: str
+    is_test: bool
+    command_instrs: list[CommandInstruction] = field(default_factory=list)
+    event_instrs: list[ExpectEventInstruction] = field(default_factory=list)
+    telemetry_instrs: list[ExpectTelemetryInstruction] = field(default_factory=list)
+
+    def get_ordered_commands(self):
+        return sorted(self.command_instrs, key=lambda ci: ci.send_time_ms)
+
+    def get_duration(self):
+        return max(
+            max(self.command_instrs, key=lambda ci: ci.send_time_ms).send_time_ms,
+            max(self.event_instrs, key=lambda ei: int(ei.end_time_ms)).end_time_ms,
+            max(self.telemetry_instrs, key=lambda ti: ti.end_time_ms).end_time_ms
+        )
+
+    def merge(self, sequence: Self, time_offset: int=0):
+        self.command_instrs += list(map(lambda ci: ci.with_time_offset(time_offset), sequence.command_instrs))
+        self.event_instrs += list(map(lambda ei: ei.with_time_offset(time_offset), sequence.event_instrs))
+        self.telemetry_instrs += list(map(lambda ti: ti.with_time_offset(time_offset), sequence.telemetry_instrs))
+
+
 class Parser:
     def __init__(self, lexer: Lexer) -> None:
         self.lexer = lexer
@@ -231,7 +285,7 @@ class Parser:
                 return instruction_type.from_token_dict(token_dict)
         return None
 
-    def parse(self):
+    def instruction_generator(self):
         current_line = []
         indentation = 0
         while (token := self.lexer.next_token()) != None:
@@ -239,10 +293,103 @@ class Parser:
                 case IndentationToken(level):
                     indentation = level
                 case NewLineToken():
-                    if (instruction := self.match_instruction(current_line)) != None:
-                        print(f"{'  '*indentation} {instruction}")
-                    elif len(current_line) != 0:
-                        print("==== ERROR ====")
+                    yield indentation, self.match_instruction(current_line)
+                    indentation = 0
                     current_line = []
                 case _:
                     current_line += [token]
+
+    def flatten_seq(self,
+                    seq_name: str,
+                    named_sequences: dict[str, Sequence],
+                    named_runsec_instrs: dict[str, list[RunSeqInstruction]],
+                    seq_name_stack: list[str]=[]) -> Sequence:
+        if seq_name in seq_name_stack:
+            print("==== ERROR 5 ====")
+            raise Exception()
+        if not seq_name in named_sequences:
+            print("==== ERROR 6 ====")
+            raise Exception()
+        sequence = replace(named_sequences[seq_name])
+        for runseq in named_runsec_instrs[seq_name]:
+            flattened_subseq = self.flatten_seq(runseq.seq_name, named_sequences, named_runsec_instrs, seq_name_stack + [seq_name])
+            sequence.merge(flattened_subseq, runseq.start_time_ms)
+        return sequence
+
+    def parse(self):
+        sequences: dict[str, Sequence] = {}
+        runseqs: dict[str, list[RunSeqInstruction]] = {}
+        current_sequence: Sequence | None = None
+        timing_stack: list[int] = []
+
+        for indentation, instruction in self.instruction_generator():
+            match instruction:
+                case SeqInstruction(seq_name, is_test):
+                    if indentation != 0:
+                        print("==== ERROR 1 ====")
+                        return
+                    if current_sequence != None:
+                        sequences[current_sequence.name] = current_sequence
+                    current_sequence = Sequence(seq_name, is_test)
+                    runseqs[seq_name] = []
+                    timing_stack = [0]
+
+                case EmptyInstruction():
+                    pass
+
+                case None:
+                    print("==== ERROR 4 ====")
+                    return
+
+                case _:
+                    if current_sequence == None:
+                        print("==== ERROR 2 ====")
+                        return
+                    if 1 <= indentation <= 1 + len(timing_stack):
+                        timing_stack = timing_stack[:indentation]
+                    else:
+                        print("==== ERROR 3 ====")
+                        return
+
+                    match instruction:
+                        case CommandInstruction():
+                            current_sequence.command_instrs += [instruction.with_time_offset(timing_stack[-1])]
+                            timing_stack += [timing_stack[-1] + instruction.send_time_ms]
+
+                        case ExpectEventInstruction():
+                            current_sequence.event_instrs += [instruction.with_time_offset(timing_stack[-1])]
+                            timing_stack += [timing_stack[-1] + instruction.start_time_ms]
+
+                        case ExpectTelemetryInstruction():
+                            current_sequence.telemetry_instrs += [instruction.with_time_offset(timing_stack[-1])]
+                            timing_stack += [timing_stack[-1] + instruction.start_time_ms]
+
+                        case RunSeqInstruction():
+                            instruction.start_time_ms += timing_stack[-1]
+                            timing_stack += [instruction.start_time_ms]
+                            runseqs[current_sequence.name] += [instruction]
+
+        if current_sequence != None:
+            sequences[current_sequence.name] = current_sequence
+
+        flattened_sequences: dict[str, Sequence] = {}
+        for seq_name in sequences.keys():
+            flattened_sequences[seq_name] = self.flatten_seq(seq_name, sequences, runseqs)
+
+        for seq_name, seq in flattened_sequences.items():
+            print(f"{seq_name}:")
+            print("\tCOMMANDS:")
+            for command in seq.get_ordered_commands():
+                print(f"\t[{command.send_time_ms}]: {command.command}")
+            print()
+            print("\tEVENTS:")
+            for event in seq.event_instrs:
+                print(f"\t[{event.start_time_ms}:{event.end_time_ms}]: {event.event}")
+            print()
+            print("\tTELEMETRY:")
+            for telemetry in seq.telemetry_instrs:
+                print(f"\t[{telemetry.start_time_ms}:{telemetry.end_time_ms}]: {telemetry.channel}")
+            print()
+            
+        return flattened_sequences
+

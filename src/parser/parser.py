@@ -1,5 +1,5 @@
-from tokens import *
-from lexer import Lexer
+from src.parser.tokens import *
+from src.parser.lexer import Lexer
 from dataclasses import dataclass, field, replace
 from typing import Self
 import abc
@@ -375,21 +375,6 @@ class Parser:
         flattened_sequences: dict[str, Sequence] = {}
         for seq_name in sequences.keys():
             flattened_sequences[seq_name] = self.flatten_seq(seq_name, sequences, runseqs)
-
-        for seq_name, seq in flattened_sequences.items():
-            print(f"{seq_name}:")
-            print("\tCOMMANDS:")
-            for command in seq.get_ordered_commands():
-                print(f"\t[{command.send_time_ms}]: {command.command}")
-            print()
-            print("\tEVENTS:")
-            for event in seq.event_instrs:
-                print(f"\t[{event.start_time_ms}:{event.end_time_ms}]: {event.event}")
-            print()
-            print("\tTELEMETRY:")
-            for telemetry in seq.telemetry_instrs:
-                print(f"\t[{telemetry.start_time_ms}:{telemetry.end_time_ms}]: {telemetry.channel}")
-            print()
             
         return flattened_sequences
 

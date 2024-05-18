@@ -1,5 +1,5 @@
-from tokens import *
-from exceptions import ParseError
+from src.parser.tokens import *
+from src.parser.exceptions import ParseError
 from dataclasses import dataclass, replace
 import abc
 

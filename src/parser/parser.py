@@ -264,9 +264,9 @@ class Sequence:
 
     def get_duration(self):
         return max(
-            max(self.command_instrs, key=lambda ci: ci.send_time_ms).send_time_ms,
-            max(self.event_instrs, key=lambda ei: int(ei.end_time_ms)).end_time_ms,
-            max(self.telemetry_instrs, key=lambda ti: ti.end_time_ms).end_time_ms
+            0 if len(self.command_instrs) == 0 else max(self.command_instrs, key=lambda ci: ci.send_time_ms).send_time_ms,
+            0 if len(self.event_instrs) == 0 else max(self.event_instrs, key=lambda ei: int(ei.end_time_ms)).end_time_ms,
+            0 if len(self.telemetry_instrs) == 0 else max(self.telemetry_instrs, key=lambda ti: ti.end_time_ms).end_time_ms
         )
 
     def merge(self, sequence: Self, time_offset: int=0):
@@ -315,6 +315,17 @@ class Parser:
             flattened_subseq = self.flatten_seq(runseq.seq_name, named_sequences, named_runsec_instrs, seq_name_stack + [seq_name])
             sequence.merge(flattened_subseq, runseq.start_time_ms)
         return sequence
+
+    def bound_timing(self, sequence: Sequence):
+        seq = replace(sequence)
+        seq_duration = seq.get_duration()
+        for event in seq.event_instrs:
+            if event.end_time_ms == -1:
+                event.end_time_ms = seq_duration
+        for tel in seq.telemetry_instrs:
+            if tel.end_time_ms == -1:
+                tel.end_time_ms = seq_duration
+        return seq
 
     def parse(self):
         sequences: dict[str, Sequence] = {}
@@ -374,7 +385,7 @@ class Parser:
 
         flattened_sequences: dict[str, Sequence] = {}
         for seq_name in sequences.keys():
-            flattened_sequences[seq_name] = self.flatten_seq(seq_name, sequences, runseqs)
+            flattened_sequences[seq_name] = self.bound_timing(self.flatten_seq(seq_name, sequences, runseqs))
             
         return flattened_sequences
 

@@ -4,7 +4,7 @@ import time
 from fprime_gds.common.data_types.ch_data import ChData
 from fprime_gds.common.data_types.event_data import EventData
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
-from src.parser.parser import ExpectEventInstruction, ExpectTelemetryInstruction, Sequence
+from fprime_test_sequencer.parser.parser import ExpectEventInstruction, ExpectTelemetryInstruction, Sequence
 
 def make_green(s: str) -> str:
     return f"\033[92m{s}\033[0m"
@@ -25,14 +25,13 @@ class Sequencer:
         self.run_sequence(seq)
 
         remaining_time = max(0, starting_time + 0.001 * seq.get_duration() - time.time())
-        print(f"\nWaiting {remaining_time:.2f} seconds for the sequence to finish...")
+        print(f"Waiting {remaining_time:.2f} seconds for the sequence to finish...")
         time.sleep(remaining_time)
-        print()
 
         success = self.validate_sequence(seq, starting_time)
 
-        footer = f" [TEST {seq.name} {make_green('PASSED') if success else make_red('FAILED')}] "
-        print(f"\n{footer:=^89s}")
+        footer = f" [TEST {seq.name} {'PASSED' if success else 'FAILED'}] "
+        print(f"{make_green(footer) if success else make_red(footer):=^89s}")
 
         return success
 
@@ -104,7 +103,6 @@ class Sequencer:
             result = f"{make_green('[OK]') if (matching_event != None) == expected_event.is_expected else make_red('[FAIL]')}"
             print(f"{timing} {event}{value}: {result} ~> {match_}")
 
-        print()
         print(f"{' [VALIDATING TELEMETRY] ':-^80s}")
 
         for expected_telemetry in seq.telemetry_instrs:
@@ -118,9 +116,9 @@ class Sequencer:
             else:
                 match_ = "None"
             timing = f"[{expected_telemetry.start_time_ms}:{expected_telemetry.end_time_ms}]"
-            event = f"EXPECT{'' if expected_telemetry.is_expected else ' NO'} TELEMETRY {expected_telemetry.channel}"
+            telemetry = f"EXPECT{'' if expected_telemetry.is_expected else ' NO'} TELEMETRY {expected_telemetry.channel}"
             value = "" if expected_telemetry.expected_value == None else f" {'re' if expected_telemetry.is_regex else ''}\"{expected_telemetry.expected_value}\""
             result = f"{make_green('[OK]') if (matching_telemetry  != None) == expected_telemetry.is_expected else make_red('[FAIL]')}"
-            print(f"{timing} {event}{value}: {result} ~> {match_}")
+            print(f"{timing} {telemetry}{value}: {result} ~> {match_}")
 
         return success

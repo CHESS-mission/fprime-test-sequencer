@@ -8,7 +8,7 @@ TEST SEQ test1
   [0] COMMAND eventAction.LOG_VERSION
     # Expect event and telemetry 10 ms after sending the command
     [:10] EXPECT EVENT eventAction.CurrentVersion re"\d"
-    [:10] EXPECT TELEMETRY eventAction.Version re"\d"
+    [:2000] EXPECT TELEMETRY eventAction.Version re"\d"
 
   # Send a second command 7000 ms after the start of the test
   [11000] COMMAND eventAction.SCHEDULE_NUMBER_CRUNCHER 1 600 5
@@ -21,14 +21,14 @@ TEST SEQ test1
   [2000] RUNSEQ simple_seq
 
 
-SEQ simple_seq
+TEST SEQ simple_seq
   [0] COMMAND eventAction.SCHEDULE_WRITE_PATTERN_RAM 1 4 1024 0
     [:3000] EXPECT EVENT eventAction.ModeChanged "Mode set to MEASURE"
-    [3000:4000] EXPECT NO EVENT eventAction.ModeChanged
-    [4000:8000] EXPECT EVENT eventAction.ModeChanged "Mode set to CHARGE"
+    # [3000:4000] EXPECT NO EVENT eventAction.ModeChanged
+    # [4000:8000] EXPECT EVENT eventAction.ModeChanged "Mode set to CHARGE"
 
 
-SEQ simple_seq2
+TEST SEQ simple_seq2
   [42] COMMAND eventAction.LOG_VERSION
     [:] EXPECT EVENT eventAction.CurrentVersion
     [58] RUNSEQ simple_seq

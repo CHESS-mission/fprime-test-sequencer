@@ -6,3 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "fprime-test-sequencer"
 dynamic = ["version"]
 dependencies = []
+
+[project.scripts]
+fprime-test-sequencer = "fprime_test_sequencer.cli:main"

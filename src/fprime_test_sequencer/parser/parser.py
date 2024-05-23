@@ -1,5 +1,5 @@
-from src.parser.tokens import *
-from src.parser.lexer import Lexer
+from fprime_test_sequencer.parser.tokens import *
+from fprime_test_sequencer.parser.lexer import Lexer
 from dataclasses import dataclass, field, replace
 from typing import Self
 import abc
@@ -327,7 +327,7 @@ class Parser:
                 tel.end_time_ms = seq_duration
         return seq
 
-    def parse(self):
+    def parse(self) -> dict[str, Sequence] | None:
         sequences: dict[str, Sequence] = {}
         runseqs: dict[str, list[RunSeqInstruction]] = {}
         current_sequence: Sequence | None = None
@@ -338,7 +338,7 @@ class Parser:
                 case SeqInstruction(seq_name, is_test):
                     if indentation != 0:
                         print("==== ERROR 1 ====")
-                        return
+                        return None
                     if current_sequence != None:
                         sequences[current_sequence.name] = current_sequence
                     current_sequence = Sequence(seq_name, is_test)
@@ -350,17 +350,17 @@ class Parser:
 
                 case None:
                     print("==== ERROR 4 ====")
-                    return
+                    return None
 
                 case _:
                     if current_sequence == None:
                         print("==== ERROR 2 ====")
-                        return
+                        return None
                     if 1 <= indentation <= 1 + len(timing_stack):
                         timing_stack = timing_stack[:indentation]
                     else:
                         print("==== ERROR 3 ====")
-                        return
+                        return None
 
                     match instruction:
                         case CommandInstruction():

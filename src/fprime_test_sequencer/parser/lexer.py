@@ -1,5 +1,5 @@
-from src.parser.tokens import *
-from src.parser.exceptions import ParseError
+from fprime_test_sequencer.parser.tokens import *
+from fprime_test_sequencer.parser.exceptions import ParseError
 from dataclasses import dataclass, replace
 import abc
 

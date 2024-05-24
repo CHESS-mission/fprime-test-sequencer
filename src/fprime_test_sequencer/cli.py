@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import time
 import os
 import argparse
 import platform
@@ -12,8 +13,9 @@ from fprime_gds.executables.utils import find_dict, get_artifacts_root
 
 from fprime_test_sequencer.parser.exceptions import ParseError
 from fprime_test_sequencer.parser.lexer import FileReader, Lexer
-from fprime_test_sequencer.parser.parser import Parser, Sequence
-from fprime_test_sequencer.sequencer import Sequencer, make_green, make_red
+from fprime_test_sequencer.parser.parser import CommandInstruction, Parser, Sequence
+from fprime_test_sequencer.sequencer import Sequencer
+from fprime_test_sequencer.util import ch_data_to_str, event_data_to_str, make_green, make_red, time_to_relative_ms
 
 
 def find_dictionary() -> Path | None:
@@ -44,6 +46,35 @@ def find_dictionary() -> Path | None:
             deployment = child_directories[0]
 
     return find_dict(deployment)
+
+
+def write_logs(filename: str, api: IntegrationTestAPI, commands: list[CommandInstruction], starting_time: float):
+    print(f"Writing logs to {filename}...")
+
+    to_ms = time_to_relative_ms(starting_time)
+
+    entries: list[tuple[int, str]] = []
+
+    entries += [(
+        cmd.send_time_ms,
+        f"COMMAND {cmd.command} {' '.join(cmd.args)}"
+    ) for cmd in commands]
+
+    entries += [(
+        to_ms(ed.get_time().get_float()),
+        f"EVENT {event_data_to_str(ed, with_timing=False)}"
+    ) for ed in api.get_event_test_history().retrieve()]
+
+    entries += [(
+        to_ms(cd.get_time().get_float()),
+        f"TELEMETRY {ch_data_to_str(cd, with_timing=False)}"
+    ) for cd in api.get_telemetry_test_history().retrieve()]
+
+    # Sort log entries by occurence time
+    entries.sort(key=lambda e: e[0])
+
+    with open(filename, 'w') as f:
+        f.writelines([f"[{e[0]} ms] {e[1]}\n" for e in entries])
 
 
 def parse_file(file: str) -> dict[str, Sequence]:
@@ -87,17 +118,11 @@ def check(file: str):
 
         print(f"{' [EVENTS] ':-^80s}")
         for event_instr in seq.event_instrs:
-            timing = f"[{event_instr.start_time_ms}:{event_instr.end_time_ms}]"
-            event = f"EXPECT{'' if event_instr.is_expected else ' NO'} EVENT {event_instr.event}"
-            value = "" if event_instr.expected_value == None else f" {'re' if event_instr.is_regex else ''}\"{event_instr.expected_value}\""
-            print(f"  {timing} {event}{value}")
+            print(f"  {event_instr}")
 
         print(f"{' [TELEMETRY] ':-^80s}")
         for telemetry_instr in seq.telemetry_instrs:
-            timing = f"[{telemetry_instr.start_time_ms}:{telemetry_instr.end_time_ms}]"
-            event = f"EXPECT{'' if telemetry_instr.is_expected else ' NO'} TELEMETRY {telemetry_instr.channel}"
-            value = "" if telemetry_instr.expected_value == None else f" {'re' if telemetry_instr.is_regex else ''}\"{telemetry_instr.expected_value}\""
-            print(f"  {timing} {event}{value}")
+            print(f"  {telemetry_instr}")
 
         print(f"{'-'*80}")
         i += 1
@@ -123,12 +148,13 @@ def setup_integration_test_api(dictionary: str, file_storage_dir: str, tts_addr:
 
 def add_cli_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("file", help="fpseq file from which sequences are read")
-    parser.add_argument("--check", action="store_true", help="perform syntax check and print parsed sequences")
-    parser.add_argument("--test", help="only run TEST")
-    parser.add_argument("--dictionary", help="path to dictionary")
+    parser.add_argument("-c", "--check", action="store_true", help="perform syntax check and print parsed sequences")
+    parser.add_argument("-t", "--test", help="only run TEST")
+    parser.add_argument("-d", "--dictionary", help="path to dictionary")
     parser.add_argument("--file-storage-directory", help="directory to store uplink and downlink files [default: /tmp/updown]", default="/tmp/updown")
-    parser.add_argument("--tts-addr", help="threaded TCP socket server address [default: 0.0.0.0]", default="0.0.0.0")
-    parser.add_argument("--tts-port", help="threaded TCP socket server port [default: 50050]", default="50050")
+    parser.add_argument("--tts-addr", help="fprime-gds threaded TCP socket server address [default: 0.0.0.0]", default="0.0.0.0")
+    parser.add_argument("--tts-port", help="fprime-gds threaded TCP socket server port [default: 50050]", default="50050")
+    parser.add_argument("--log-all", help="log all sent commands, received events and telemetry to given file", metavar="LOG_ALL_FILE")
 
 
 def main():
@@ -141,6 +167,13 @@ def main():
         exit()
 
     sequences = parse_file(args.file)
+
+    if args.log_all is not None:
+        dirname = os.path.dirname(args.log_all)
+        if not os.path.exists(dirname) and not dirname == "":
+            print(f"Path {dirname} does not exist")
+            exit()
+        print(f"Logging commands, events and telemetry to {args.log_all}")
 
     if args.dictionary is None:
         print("Automatically detecting dictionary file...")
@@ -160,6 +193,8 @@ def main():
 
     test_count = 0
     successes = 0
+    starting_time = time.time()
+    sent_commands = []
     if args.test is not None:
         if args.test not in sequences.keys():
             print(f"No test named {args.test} in {args.file}")
@@ -168,6 +203,7 @@ def main():
         success = sequencer.run_and_validate_sequence(sequences[args.test])
         test_count = 1
         successes = 1 if success else 0
+        sent_commands += sequences[args.test].command_instrs
     else:
         for sequence in sequences.values():
             if sequence.is_test:
@@ -175,9 +211,13 @@ def main():
                 success = sequencer.run_and_validate_sequence(sequence)
                 test_count += 1
                 successes += 1 if success else 0
+                sent_commands += sequence.command_instrs
 
     success_rate = f" [{successes}/{test_count} TESTS PASSED ({float(successes)/float(test_count):.0%})] "
-    print(f"\n{make_green(success_rate) if successes == test_count else make_red(success_rate):=^89s}")
+    print(f"\n{make_green(success_rate) if successes == test_count else make_red(success_rate):=^89s}\n")
+
+    if args.log_all is not None:
+        write_logs(args.log_all, api, sent_commands, starting_time)
 
     api.pipeline.disconnect()
 

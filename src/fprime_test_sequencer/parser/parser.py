@@ -101,6 +101,9 @@ class SeqInstruction(Instruction):
             is_test = token_dict["is_test"] != None
         )
 
+    def __str__(self) -> str:
+        return f"{'TEST ' if self.is_test else ''}SEQ {self.seq_name}"
+
 @dataclass
 class CommandInstruction(Instruction):
     command: str
@@ -130,6 +133,9 @@ class CommandInstruction(Instruction):
         copy = replace(self)
         copy.send_time_ms += time_offset
         return copy
+
+    def __str__(self) -> str:
+        return f"[{self.send_time_ms}] COMMAND {self.command} {' '.join(self.args)}"
 
 
 @dataclass
@@ -173,6 +179,12 @@ class ExpectEventInstruction(Instruction):
         copy.end_time_ms += time_offset if self.end_time_ms != -1 else 0
         return copy
 
+    def __str__(self) -> str:
+        timing = f"[{self.start_time_ms}:{self.end_time_ms}]"
+        event = f"EXPECT{'' if self.is_expected else ' NO'} EVENT {self.event}"
+        value = "" if self.expected_value == None else f" {'re' if self.is_regex else ''}\"{self.expected_value}\""
+        return f"{timing} {event}{value}"
+
 
 @dataclass
 class ExpectTelemetryInstruction(Instruction):
@@ -215,6 +227,12 @@ class ExpectTelemetryInstruction(Instruction):
         copy.end_time_ms += time_offset if self.end_time_ms != -1 else 0
         return copy
 
+    def __str__(self) -> str:
+        timing = f"[{self.start_time_ms}:{self.end_time_ms}]"
+        telemetry = f"EXPECT{'' if self.is_expected else ' NO'} TELEMETRY {self.channel}"
+        value = "" if self.expected_value == None else f" {'re' if self.is_regex else ''}\"{self.expected_value}\""
+        return f"{timing} {telemetry}{value}"
+
 
 @dataclass
 class RunSeqInstruction(Instruction):
@@ -237,6 +255,9 @@ class RunSeqInstruction(Instruction):
             seq_name = token_dict["seq_name"].name,
             start_time_ms = int(token_dict["start_time_ms"].value)
         )
+
+    def __str__(self) -> str:
+        return f"[{self.start_time_ms}] RUNSEQ {self.seq_name}"
 
 
 @dataclass

@@ -1,10 +1,12 @@
+import os
+from pathlib import Path
 import re
 import time
 
 from fprime_gds.common.data_types.ch_data import ChData
 from fprime_gds.common.data_types.event_data import EventData
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
-from fprime_test_sequencer.parser.parser import ExpectEventInstruction, ExpectTelemetryInstruction, Sequence
+from fprime_test_sequencer.parser.parser import CommandInstruction, ExpectEventInstruction, ExpectTelemetryInstruction, Sequence, UplinkInstruction
 from fprime_test_sequencer.util import ch_data_to_str, event_data_to_str, make_green, make_red
 
 class Sequencer:
@@ -36,15 +38,35 @@ class Sequencer:
         def elapsed_time_s():
             return time.time() - starting_time_s
 
-        commands = seq.get_ordered_commands()
-        max_send_time_digits = len(str(commands[-1].send_time_ms))
+        instructions: list[tuple[int, CommandInstruction | UplinkInstruction]] = []
 
-        for command in commands:
-            # Sleep until next command
-            time.sleep(max(0.001 * command.send_time_ms - elapsed_time_s(), 0))
-            # Send command
-            print(f"[{round(1000 * elapsed_time_s()):{max_send_time_digits}} ms]: Sending command {command.command} {' '.join(command.args)}")
-            self.api.send_command(command.command, command.args)
+        instructions += [(
+            cmd.send_time_ms,
+            cmd
+        ) for cmd in seq.command_instrs]
+
+        instructions += [(
+            up.uplink_time_ms,
+            up
+        ) for up in seq.uplink_instrs]
+
+        # Sort instructions by execution time
+        instructions.sort(key=lambda e: e[0])
+
+        max_exec_time_digits = len(str(instructions[-1][0]))
+
+        for exec_time, instr in instructions:
+            # Sleep until next instruction
+            time.sleep(max(0.001 * exec_time - elapsed_time_s(), 0))
+            # Execute instruction
+            if type(instr) == CommandInstruction:
+                print(f"[{round(1000 * elapsed_time_s()):{max_exec_time_digits}} ms]: Sending command {instr.command} {' '.join(instr.args)}")
+                self.api.send_command(instr.command, instr.args)
+            elif type(instr) == UplinkInstruction:
+                print(f"[{round(1000 * elapsed_time_s()):{max_exec_time_digits}} ms]: Uplinking file {instr.file} to {instr.dest}")
+                tmp_file = str(self.api.pipeline.up_store) + "/" + Path(instr.file).name
+                os.system(f"cp {instr.file} {tmp_file}")
+                self.api.pipeline.files.uplinker.enqueue(tmp_file, instr.dest)
 
 
     def find_matching_event(self, event: ExpectEventInstruction, starting_time: float) -> EventData | None:

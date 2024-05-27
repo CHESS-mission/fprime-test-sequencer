@@ -5,7 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fprime-test-sequencer"
 dynamic = ["version"]
-dependencies = []
+dependencies = [
+  "fprime-gds>=4.3.3"
+]
 
 [project.scripts]
 fprime-test-sequencer = "fprime_test_sequencer.cli:main"

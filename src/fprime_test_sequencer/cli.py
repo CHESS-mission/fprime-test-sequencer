@@ -13,7 +13,7 @@ from fprime_gds.executables.utils import find_dict, get_artifacts_root
 
 from fprime_test_sequencer.parser.exceptions import ParseError
 from fprime_test_sequencer.parser.lexer import FileReader, Lexer
-from fprime_test_sequencer.parser.parser import CommandInstruction, Parser, Sequence
+from fprime_test_sequencer.parser.parser import CommandInstruction, Parser, Sequence, UplinkInstruction
 from fprime_test_sequencer.sequencer import Sequencer
 from fprime_test_sequencer.util import ch_data_to_str, event_data_to_str, make_green, make_red, time_to_relative_ms
 
@@ -48,7 +48,7 @@ def find_dictionary() -> Path | None:
     return find_dict(deployment)
 
 
-def write_logs(filename: str, api: IntegrationTestAPI, commands: list[CommandInstruction], starting_time: float):
+def write_logs(filename: str, api: IntegrationTestAPI, commands: list[CommandInstruction], uplinks: list[UplinkInstruction], starting_time: float):
     print(f"Writing logs to {filename}...")
 
     to_ms = time_to_relative_ms(starting_time)
@@ -69,6 +69,11 @@ def write_logs(filename: str, api: IntegrationTestAPI, commands: list[CommandIns
         to_ms(cd.get_time().get_float()),
         f"TELEMETRY {ch_data_to_str(cd, with_timing=False)}"
     ) for cd in api.get_telemetry_test_history().retrieve()]
+
+    entries += [(
+        up.uplink_time_ms,
+        f"UPLINK {up.file} {up.dest}"
+    ) for up in uplinks]
 
     # Sort log entries by occurence time
     entries.sort(key=lambda e: e[0])
@@ -123,6 +128,10 @@ def check(file: str):
         print(f"{' [TELEMETRY] ':-^80s}")
         for telemetry_instr in seq.telemetry_instrs:
             print(f"  {telemetry_instr}")
+
+        print(f"{' [UPLINK] ':-^80s}")
+        for uplink_instr in seq.get_ordered_uplinks():
+            print(f"  [{uplink_instr.uplink_time_ms} ms]: UPLINK {uplink_instr.file} {uplink_instr.dest}")
 
         print(f"{'-'*80}")
         i += 1
@@ -195,6 +204,7 @@ def main():
     successes = 0
     starting_time = time.time()
     sent_commands = []
+    uplinks = []
     if args.test is not None:
         if args.test not in sequences.keys():
             print(f"No test named {args.test} in {args.file}")
@@ -204,6 +214,7 @@ def main():
         test_count = 1
         successes = 1 if success else 0
         sent_commands += sequences[args.test].command_instrs
+        uplinks += sequences[args.test].uplink_instrs
     else:
         for sequence in sequences.values():
             if sequence.is_test:
@@ -212,12 +223,13 @@ def main():
                 test_count += 1
                 successes += 1 if success else 0
                 sent_commands += sequence.command_instrs
+                uplinks += sequence.uplink_instrs
 
     success_rate = f" [{successes}/{test_count} TESTS PASSED ({float(successes)/float(test_count):.0%})] "
     print(f"\n{make_green(success_rate) if successes == test_count else make_red(success_rate):=^89s}\n")
 
     if args.log_all is not None:
-        write_logs(args.log_all, api, sent_commands, starting_time)
+        write_logs(args.log_all, api, sent_commands, uplinks, starting_time)
 
     api.pipeline.disconnect()
 

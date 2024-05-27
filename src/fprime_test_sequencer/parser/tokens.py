@@ -11,6 +11,7 @@ class Keyword(Enum):
     COMMAND = auto()
     EVENT = auto()
     TELEMETRY = auto()
+    UPLINK = auto()
     RUNSEQ = auto()
 
     @classmethod

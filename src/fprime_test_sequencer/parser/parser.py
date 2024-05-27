@@ -235,6 +235,40 @@ class ExpectTelemetryInstruction(Instruction):
 
 
 @dataclass
+class UplinkInstruction(Instruction):
+    file: str
+    dest: str
+    uplink_time_ms: int
+
+    @classmethod
+    def get_structure(cls) -> list[tuple[str | None, TokenSlot]]:
+        return [
+            (None, TokenSlot(SyntaxToken('['))),
+            ("uplink_time_ms", TokenSlot(LitteralToken, filter=lambda x: x.value.isdigit())),
+            (None, TokenSlot(SyntaxToken(']'))),
+            (None, TokenSlot(KeywordToken(Keyword.UPLINK))),
+            ("file", TokenSlot(LitteralToken, filter=lambda x: not x.is_regex)),
+            ("dest", TokenSlot(LitteralToken, filter=lambda x: not x.is_regex)),
+        ]
+
+    @classmethod
+    def from_token_dict(cls, token_dict: dict) -> Self:
+        return cls(
+            file = token_dict["file"].value,
+            dest = token_dict["dest"].value,
+            uplink_time_ms = int(token_dict["uplink_time_ms"].value),
+        )
+
+    def with_time_offset(self, time_offset: int) -> Self:
+        copy = replace(self)
+        copy.uplink_time_ms += time_offset
+        return copy
+
+    def __str__(self) -> str:
+        return f"[{self.uplink_time_ms}] UPLINK {self.file} {self.dest}"
+
+
+@dataclass
 class RunSeqInstruction(Instruction):
     seq_name: str
     start_time_ms: int
@@ -279,21 +313,27 @@ class Sequence:
     command_instrs: list[CommandInstruction] = field(default_factory=list)
     event_instrs: list[ExpectEventInstruction] = field(default_factory=list)
     telemetry_instrs: list[ExpectTelemetryInstruction] = field(default_factory=list)
+    uplink_instrs: list[UplinkInstruction] = field(default_factory=list)
 
     def get_ordered_commands(self):
         return sorted(self.command_instrs, key=lambda ci: ci.send_time_ms)
+
+    def get_ordered_uplinks(self):
+        return sorted(self.uplink_instrs, key=lambda ui: ui.uplink_time_ms)
 
     def get_duration(self):
         return max(
             0 if len(self.command_instrs) == 0 else max(self.command_instrs, key=lambda ci: ci.send_time_ms).send_time_ms,
             0 if len(self.event_instrs) == 0 else max(self.event_instrs, key=lambda ei: int(ei.end_time_ms)).end_time_ms,
-            0 if len(self.telemetry_instrs) == 0 else max(self.telemetry_instrs, key=lambda ti: ti.end_time_ms).end_time_ms
+            0 if len(self.telemetry_instrs) == 0 else max(self.telemetry_instrs, key=lambda ti: ti.end_time_ms).end_time_ms,
+            0 if len(self.uplink_instrs) == 0 else max(self.uplink_instrs, key=lambda ui: ui.uplink_time_ms).uplink_time_ms
         )
 
     def merge(self, sequence: Self, time_offset: int=0):
         self.command_instrs += list(map(lambda ci: ci.with_time_offset(time_offset), sequence.command_instrs))
         self.event_instrs += list(map(lambda ei: ei.with_time_offset(time_offset), sequence.event_instrs))
         self.telemetry_instrs += list(map(lambda ti: ti.with_time_offset(time_offset), sequence.telemetry_instrs))
+        self.uplink_instrs += list(map(lambda ui: ui.with_time_offset(time_offset), sequence.uplink_instrs))
 
 
 class Parser:
@@ -395,6 +435,10 @@ class Parser:
                         case ExpectTelemetryInstruction():
                             current_sequence.telemetry_instrs += [instruction.with_time_offset(timing_stack[-1])]
                             timing_stack += [timing_stack[-1] + instruction.start_time_ms]
+
+                        case UplinkInstruction():
+                            current_sequence.uplink_instrs += [instruction.with_time_offset(timing_stack[-1])]
+                            timing_stack += [timing_stack[-1] + instruction.uplink_time_ms]
 
                         case RunSeqInstruction():
                             instruction.start_time_ms += timing_stack[-1]

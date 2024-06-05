@@ -6,6 +6,9 @@ import argparse
 import platform
 from pathlib import Path
 
+from fprime.common.models.serialize.time_type import TimeType
+
+from fprime_gds.common.history.chrono import ChronologicalHistory
 from fprime_gds.common.pipeline.standard import StandardPipeline
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 from fprime_gds.common.utils.config_manager import ConfigManager
@@ -16,6 +19,17 @@ from fprime_test_sequencer.parser.lexer import FileReader, Lexer
 from fprime_test_sequencer.parser.parser import CommandInstruction, Parser, Sequence, UplinkInstruction
 from fprime_test_sequencer.sequencer import Sequencer
 from fprime_test_sequencer.util import ch_data_to_str, event_data_to_str, make_green, make_red, time_to_relative_ms
+
+
+class LocalTimeChronologicalHistory(ChronologicalHistory):
+    """
+    A chronological history which replaces remote sending times with local reception times.
+    """
+
+    def data_callback(self, data, sender=None):
+        if self.filter(data):
+            data.time.set_float(time.time())
+        super().data_callback(data, sender)
 
 
 def find_dictionary() -> Path | None:
@@ -152,6 +166,12 @@ def setup_integration_test_api(dictionary: str, file_storage_dir: str, tts_addr:
     api = IntegrationTestAPI(pipeline)
     api.setup()
 
+    # Replace fprime-gds' chronological history with local time chronological history
+    api.event_history = LocalTimeChronologicalHistory()
+    api.telemetry_history = LocalTimeChronologicalHistory()
+    api.pipeline.coders.register_event_consumer(api.event_history)
+    api.pipeline.coders.register_channel_consumer(api.telemetry_history)
+
     return api
 
 
@@ -216,14 +236,16 @@ def main():
         sent_commands += sequences[args.test].command_instrs
         uplinks += sequences[args.test].uplink_instrs
     else:
+        cumulative_seq_duration = 0
         for sequence in sequences.values():
             if sequence.is_test:
                 print(f"\n{test_count+1}.")
                 success = sequencer.run_and_validate_sequence(sequence)
                 test_count += 1
                 successes += 1 if success else 0
-                sent_commands += sequence.command_instrs
-                uplinks += sequence.uplink_instrs
+                sent_commands += [i.with_time_offset(cumulative_seq_duration) for i in sequence.command_instrs]
+                uplinks += [u.with_time_offset(cumulative_seq_duration) for u in sequence.uplink_instrs]
+                cumulative_seq_duration += sequence.get_duration()
 
     success_rate = f" [{successes}/{test_count} TESTS PASSED ({float(successes)/float(test_count):.0%})] "
     print(f"\n{make_green(success_rate) if successes == test_count else make_red(success_rate):=^89s}\n")

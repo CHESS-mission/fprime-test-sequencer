@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import re
 import time
+import shutil
 
 from fprime_gds.common.data_types.ch_data import ChData
 from fprime_gds.common.data_types.event_data import EventData
@@ -65,7 +66,7 @@ class Sequencer:
             elif type(instr) == UplinkInstruction:
                 print(f"[{round(1000 * elapsed_time_s()):{max_exec_time_digits}} ms]: Uplinking file {instr.file} to {instr.dest}")
                 tmp_file = str(self.api.pipeline.up_store) + "/" + Path(instr.file).name
-                os.system(f"cp {instr.file} {tmp_file}")
+                shutil.copyfile(instr.file, tmp_file)
                 self.api.pipeline.files.uplinker.enqueue(tmp_file, instr.dest)
 
 

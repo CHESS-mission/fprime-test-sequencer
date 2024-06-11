@@ -1,3 +1,4 @@
+# Write comments using '#'
 # Create a test sequence called test1
 TEST SEQ test1
   # Expect no event of severity warning_hi or fatal along the course of the test
@@ -6,29 +7,42 @@ TEST SEQ test1
 
   # Send a command without arguments at the start of the test
   [0] COMMAND eventAction.LOG_VERSION
-    # Expect event and telemetry 10 ms after sending the command
-    [:10] EXPECT EVENT eventAction.CurrentVersion re"\d"
-    [:2000] EXPECT TELEMETRY eventAction.Version re"\d"
+    # Any instruction can be followed by an indented block of instructions
+    # to make their timing relative the the instruction's starting time
+    # Note that indented blocks can be arbitrarily nested
 
-  # Send a second command 7000 ms after the start of the test
-  [11000] COMMAND eventAction.SCHEDULE_NUMBER_CRUNCHER 1 600 5
-    # Expect mode changes only during specific time interval (relative to the command)
-    [:3000] EXPECT EVENT eventAction.ModeChanged "Mode set to MEASURE"
-    [3000:5000] EXPECT NO EVENT eventAction.ModeChanged
-    [5000:9000] EXPECT EVENT eventAction.ModeChanged "Mode set to CHARGE"
+    # Expect events in the next 100 ms after sending the command
+    [:100] EXPECT EVENT cmdDisp.OpCodeDispatched re"0xe04"
+    # Use re"<expr>" to match the received value against the regular expression <expr>
+    [:100] EXPECT EVENT eventAction.CurrentVersion re"Current version : \d"
+    [:100] EXPECT EVENT cmdDisp.OpCodeCompleted re"0xe04"
 
-  # Run another sequence inside a sequence
-  [2000] RUNSEQ simple_seq
+    # Expect telemetry in the next 15 seconds after sending the command
+    [:15000] EXPECT TELEMETRY eventAction.Version re"\d"
 
+  # Send a 2nd command 1 second after the start of the test
+  [1000] COMMAND eventAction.SCHEDULE_NUMBER_CRUNCHER 5 600 60
+    [:100] EXPECT EVENT cmdDisp.OpCodeDispatched re"0xe06"
+    [:100] EXPECT EVENT cmdDisp.OpCodeCompleted re"0xe06"
 
-TEST SEQ simple_seq
-  [0] COMMAND eventAction.SCHEDULE_WRITE_PATTERN_RAM 1 4 1024 0
-    [:3000] EXPECT EVENT eventAction.ModeChanged "Mode set to MEASURE"
-    # [3000:4000] EXPECT NO EVENT eventAction.ModeChanged
-    # [4000:8000] EXPECT EVENT eventAction.ModeChanged "Mode set to CHARGE"
+    # Expect mode changes only during specific time interval
+    [:4000] EXPECT NO EVENT eventAction.ModeChanged
+    [4000:7000] EXPECT EVENT eventAction.ModeChanged "Mode set to MEASURE"
+    [7000:64000] EXPECT NO EVENT eventAction.ModeChanged
+    [64000:69000] EXPECT EVENT eventAction.ModeChanged "Mode set to CHARGE"
 
+  # Start uplinking a file to the OBC 100 seconds after the start of the test
+  [100000] UPLINK "/input/IOD_v2" "/home/root/executables/IOD_v2"
+    # Expect the file to be received in the next 60 seconds
+    [:60000] EXPECT EVENT fileUplink.FileReceived
 
-TEST SEQ simple_seq2
-  [42] COMMAND eventAction.LOG_VERSION
-    [:] EXPECT EVENT eventAction.CurrentVersion
-    [58] RUNSEQ simple_seq
+  # Run another sequence inside a sequence 160 seconds after the start of the test
+  [160000] RUNSEQ simple_seq
+
+# Create a simple sequence called simple_seq
+SEQ simple_seq
+  [0] COMMAND eventAction.UPDATE "/home/root/executables/" "IOD_v2"
+    [:100] EXPECT EVENT cmdDisp.OpCodeDispatched re"0xe03"
+    [:100] EXPECT EVENT cmdDisp.OpCodeCompleted re"0xe03"
+
+    [2000] COMMAND eventAction.SCHEDULE_RESTART 1
